@@ -8,7 +8,7 @@ HabitFlow is a Flutter app for tracking habits and fitness. It has a glass-style
 - **Habits**: a scrollable date strip, a summary card with a progress ring, and the habit list. You can mark habits done, which updates their streaks, add new habits with a custom icon, color and time of day, or remove them.
 - **Statistics**: recent workout charts for calories and duration, plus a habit-consistency heatmap.
 - **Catalog**: six wellness-gear products you can switch between a list feed and a 2-column grid. Each product has an "Add to Cart" toggle, and the cart button in the header shows a live item-count badge. Pull down to reload the starter items, swipe left to delete an item (with Undo), and restore the starter items when the catalog is empty.
-- **Cart**: the selected products with a remove button on each, the total price, and a "Clear All" button. The cart is shared with the Catalog through `provider`, so changes on either screen show up on the other right away.
+- **Cart**: the selected products with −/+ buttons to change how many pieces you want and a remove button on each, the total price, an "Order" button that places the order, and a "Clear All" link. The cart is shared with the Catalog through `provider`, so changes on either screen show up on the other right away.
 - **Profile**: personal metrics (age, height, weight) and an editable profile. Settings cover reminder time, sound, notifications, appearance (system, light or dark), experience level, caution areas and units.
 - **Saved settings**: the theme, sound, notification, experience, reminder and caution-area settings are stored with `shared_preferences`, so they stay the same between launches.
 

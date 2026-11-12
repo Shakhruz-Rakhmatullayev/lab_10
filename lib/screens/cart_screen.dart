@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../data/sample_data.dart';
 import '../state/cart_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
@@ -9,6 +8,25 @@ import '../widgets/glass.dart';
 
 class CartScreen extends StatelessWidget {
   const CartScreen({super.key});
+
+  void _order(BuildContext context, CartProvider cart) {
+    final message =
+        'Order placed: ${cart.count} items for ${formatPrice(cart.total)}';
+    cart.clear();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message, style: const TextStyle(color: Colors.white)),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.ink,
+          margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+        ),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,13 +63,10 @@ class CartScreen extends StatelessWidget {
                       ? const _EmptyCart()
                       : ListView.separated(
                           padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                          itemCount: cart.count,
+                          itemCount: cart.items.length,
                           separatorBuilder: (_, _) =>
                               const SizedBox(height: 10),
-                          itemBuilder: (_, i) => _CartRow(
-                            product: cart.items[i],
-                            onRemove: () => cart.remove(cart.items[i]),
-                          ),
+                          itemBuilder: (_, i) => _CartRow(item: cart.items[i]),
                         ),
                 ),
                 if (!cart.isEmpty)
@@ -89,9 +104,9 @@ class CartScreen extends StatelessWidget {
                           SizedBox(
                             width: double.infinity,
                             child: PrimaryButton(
-                              label: 'Clear All',
-                              icon: Icons.delete_sweep_rounded,
-                              onTap: cart.clear,
+                              label: 'Order',
+                              icon: Icons.shopping_bag_rounded,
+                              onTap: () => _order(context, cart),
                             ),
                           ),
                         ],
@@ -127,13 +142,14 @@ class CartBadgeButton extends StatelessWidget {
 }
 
 class _CartRow extends StatelessWidget {
-  const _CartRow({required this.product, required this.onRemove});
+  const _CartRow({required this.item});
 
-  final Product product;
-  final VoidCallback onRemove;
+  final CartItem item;
 
   @override
   Widget build(BuildContext context) {
+    final cart = context.read<CartProvider>();
+    final product = item.product;
     return Glass(
       radius: 22,
       opacity: 0.16,
@@ -156,20 +172,90 @@ class _CartRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(product.category, style: AppText.caption),
+                Text(
+                  '${product.category} · ${formatPrice(product.price)} each',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.caption,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    _StepButton(
+                      icon: Icons.remove_rounded,
+                      tooltip: 'Decrease ${product.title}',
+                      onTap: item.quantity > 1
+                          ? () => cart.decrement(product)
+                          : null,
+                    ),
+                    SizedBox(
+                      width: 32,
+                      child: Text(
+                        '${item.quantity}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    _StepButton(
+                      icon: Icons.add_rounded,
+                      tooltip: 'Increase ${product.title}',
+                      onTap: () => cart.increment(product),
+                    ),
+                    const Spacer(),
+                    Text(
+                      formatPrice(item.subtotal),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
-          Text(
-            formatPrice(product.price),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
           IconButton(
             tooltip: 'Remove ${product.title}',
-            onPressed: onRemove,
+            onPressed: () => cart.remove(product),
             icon: const Icon(Icons.close_rounded, color: Colors.white),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Small round − / + button for changing how many pieces are in the cart.
+class _StepButton extends StatelessWidget {
+  const _StepButton({required this.icon, required this.tooltip, this.onTap});
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Pressable(
+        onTap: onTap,
+        child: AnimatedOpacity(
+          opacity: onTap == null ? 0.4 : 1,
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white.withValues(alpha: 0.45)),
+            ),
+            child: Icon(icon, size: 18, color: Colors.white),
+          ),
+        ),
       ),
     );
   }

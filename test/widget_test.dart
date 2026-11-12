@@ -119,10 +119,18 @@ void main() {
     expect(find.text('Total (2 items)'), findsOneWidget);
     expect(find.text(formatPrice(a.price + b.price)), findsOneWidget);
 
+    for (final step in ['Increase', 'Increase', 'Decrease']) {
+      await tester.tap(find.byTooltip('$step ${b.title}'));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(find.text('Total (3 items)'), findsOneWidget);
+    expect(find.text(formatPrice(b.price * 2)), findsWidgets);
+
     await tester.tap(find.byTooltip('Remove ${a.title}'));
     await tester.pumpAndSettle();
-    expect(find.text('Total (1 items)'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Total (2 items)'), findsOneWidget);
+    expect(find.text(formatPrice(b.price * 2)), findsNWidgets(2));
 
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
     await tester.pumpAndSettle();
@@ -131,14 +139,29 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.shopping_bag_outlined));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear All').last);
+    await tester.tap(find.text('Order'));
     await tester.pumpAndSettle();
+    expect(find.textContaining('Order placed'), findsOneWidget);
     expect(find.text('Your cart is empty'), findsOneWidget);
 
     await tester.tap(find.text('Back to catalog'));
     await tester.pumpAndSettle();
     expect(find.text('In cart'), findsNothing);
     expect(find.text('Add to Cart'), findsNWidgets(6));
+  });
+
+  testWidgets('Clear All link empties the cart', (tester) async {
+    await tester.pumpWidget(HabitflowApp(state: AppState()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.storefront_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add to Cart').first);
+    await tester.tap(find.byIcon(Icons.shopping_bag_outlined));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Clear All'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your cart is empty'), findsOneWidget);
   });
 
   test('settings survive an app restart', () async {
