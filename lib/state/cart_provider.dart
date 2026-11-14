@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/sample_data.dart';
+import '../models/product.dart';
 
 /// A product in the cart and how many pieces of it were picked.
 class CartItem {
@@ -15,7 +15,7 @@ class CartItem {
 /// Shopping cart shared by the Catalog and Cart screens via `provider`.
 class CartProvider extends ChangeNotifier {
   // Keyed by product id; a LinkedHashMap keeps the order items were added.
-  final Map<String, CartItem> _items = {};
+  final Map<int, CartItem> _items = {};
 
   List<CartItem> get items => List.unmodifiable(_items.values);
   bool get isEmpty => _items.isEmpty;

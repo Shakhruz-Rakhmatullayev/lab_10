@@ -5,6 +5,7 @@ import '../state/cart_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
 import '../widgets/glass.dart';
+import '../widgets/product_image.dart';
 
 class CartScreen extends StatelessWidget {
   const CartScreen({super.key});
@@ -156,7 +157,11 @@ class _CartRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
       child: Row(
         children: [
-          IconBubble(icon: product.icon, color: product.color, size: 46),
+          SizedBox(
+            width: 52,
+            height: 52,
+            child: ProductImage(url: product.imageUrl, radius: 14, padding: 6),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(

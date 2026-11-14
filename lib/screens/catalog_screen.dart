@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../data/sample_data.dart';
+import '../models/product.dart';
+import '../services/product_service.dart';
 import '../state/cart_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
 import '../widgets/glass.dart';
+import '../widgets/product_image.dart';
 import 'cart_screen.dart';
+import 'product_detail_screen.dart';
 
 /// Always scrollable so pull-to-refresh works even with few (or no) items.
 const _physics = AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics());
+
+/// The three production UI states of the catalog.
+enum LoadState { loading, success, error }
 
 class CatalogScreen extends StatefulWidget {
   const CatalogScreen({super.key, required this.onBack});
@@ -21,14 +27,44 @@ class CatalogScreen extends StatefulWidget {
 }
 
 class _CatalogScreenState extends State<CatalogScreen> {
-  final List<Product> _products = [...seedProducts];
+  final List<Product> _products = [];
+  LoadState _state = LoadState.loading;
+  String _error = '';
   bool _grid = false;
 
-  Future<void> _refresh() async {
-    // Simulated network request; reloading brings back the starter items.
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted) return;
-    _restore();
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  /// Fetches the catalog. [showSpinner] is false for pull-to-refresh, because
+  /// the RefreshIndicator already shows its own spinner over the old list.
+  Future<void> _load({bool showSpinner = true}) async {
+    if (showSpinner) setState(() => _state = LoadState.loading);
+    try {
+      final products = await context.read<ProductService>().fetchProducts();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      setState(() {
+        _products
+          ..clear()
+          ..addAll(products);
+        _state = LoadState.success;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _state = LoadState.error;
+      });
+    }
+  }
+
+  void _open(Product p) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ProductDetailScreen(product: p)),
+    );
   }
 
   void _remove(Product p) {
@@ -40,6 +76,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
         SnackBar(
           content: Text(
             'Removed "${p.title}"',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white),
           ),
           behavior: SnackBarBehavior.floating,
@@ -53,7 +91,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
             label: 'UNDO',
             textColor: AppColors.orangeLight,
             onPressed: () {
-              // Skip if the screen is gone or a restore already brought it back.
+              // Skip if the screen is gone or a reload already brought it back.
               if (!mounted || _products.any((x) => x.id == p.id)) return;
               setState(
                 () => _products.insert(index.clamp(0, _products.length), p),
@@ -62,15 +100,6 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
         ),
       );
-  }
-
-  void _restore() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    setState(
-      () => _products
-        ..clear()
-        ..addAll(seedProducts),
-    );
   }
 
   Widget _dismissible(
@@ -95,13 +124,12 @@ class _CatalogScreenState extends State<CatalogScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final Widget body;
+  Widget _feed() {
     if (_products.isEmpty) {
-      body = _EmptyCatalog(key: const ValueKey('empty'), onRestore: _restore);
-    } else if (_grid) {
-      body = GridView.builder(
+      return _EmptyCatalog(key: const ValueKey('empty'), onReload: _load);
+    }
+    if (_grid) {
+      return GridView.builder(
         key: const ValueKey('grid'),
         physics: _physics,
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 130),
@@ -109,33 +137,65 @@ class _CatalogScreenState extends State<CatalogScreen> {
           crossAxisCount: 2,
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 0.74,
+          childAspectRatio: 0.66,
         ),
         itemCount: _products.length,
         itemBuilder: (_, i) => _dismissible(
           _products[i],
           radius: 26,
-          child: _ProductCard(product: _products[i]),
-        ),
-      );
-    } else {
-      body = ListView.separated(
-        key: const ValueKey('list'),
-        physics: _physics,
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 130),
-        itemCount: _products.length,
-        separatorBuilder: (_, _) => Divider(
-          height: 1,
-          thickness: 0.5,
-          color: Colors.white.withValues(alpha: 0.25),
-        ),
-        itemBuilder: (_, i) => _dismissible(
-          _products[i],
-          radius: 18,
-          child: _ProductRow(product: _products[i]),
+          child: _ProductCard(
+            product: _products[i],
+            onTap: () => _open(_products[i]),
+          ),
         ),
       );
     }
+    return ListView.separated(
+      key: const ValueKey('list'),
+      physics: _physics,
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 130),
+      itemCount: _products.length,
+      separatorBuilder: (_, _) => Divider(
+        height: 1,
+        thickness: 0.5,
+        color: Colors.white.withValues(alpha: 0.25),
+      ),
+      itemBuilder: (_, i) => _dismissible(
+        _products[i],
+        radius: 18,
+        child: _ProductRow(
+          product: _products[i],
+          onTap: () => _open(_products[i]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget body = switch (_state) {
+      LoadState.loading => const Center(
+        key: ValueKey('loading'),
+        child: CircularProgressIndicator(color: Colors.white),
+      ),
+      LoadState.error => _ErrorView(
+        key: const ValueKey('error'),
+        message: _error,
+        onRetry: _load,
+      ),
+      LoadState.success => RefreshIndicator(
+        key: const ValueKey('success'),
+        onRefresh: () => _load(showSpinner: false),
+        color: AppColors.ink,
+        backgroundColor: Colors.white,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          child: _feed(),
+        ),
+      ),
+    };
 
     return SafeArea(
       bottom: false,
@@ -162,7 +222,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
                 Expanded(
                   child: SectionHeader(
                     title: _grid ? 'Grid catalog' : 'List feed',
-                    action: '${_products.length} items',
+                    action: _state == LoadState.success
+                        ? '${_products.length} items'
+                        : null,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -178,16 +240,9 @@ class _CatalogScreenState extends State<CatalogScreen> {
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              color: AppColors.ink,
-              backgroundColor: Colors.white,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                child: body,
-              ),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: body,
             ),
           ),
         ],
@@ -197,102 +252,79 @@ class _CatalogScreenState extends State<CatalogScreen> {
 }
 
 class _ProductRow extends StatelessWidget {
-  const _ProductRow({required this.product});
+  const _ProductRow({required this.product, required this.onTap});
 
   final Product product;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: product.color,
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.5),
-                width: 2,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            Hero(
+              tag: 'product_image_${product.id}',
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: ProductImage(url: product.imageUrl, radius: 16),
               ),
             ),
-            child: Icon(product.icon, color: Colors.white, size: 22),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.25,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Rating(
+                    rating: product.rating,
+                    reviewCount: product.reviewCount,
+                    color: Colors.white,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  product.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  formatPrice(product.price),
                   style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Flexible(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.35),
-                          ),
-                        ),
-                        child: Text(
-                          product.category,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _Rating(rating: product.rating, color: Colors.white),
-                  ],
-                ),
+                _CartToggle(product: product),
               ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                formatPrice(product.price),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 6),
-              _CartToggle(product: product),
-            ],
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
 class _ProductCard extends StatelessWidget {
-  const _ProductCard({required this.product});
+  const _ProductCard({required this.product, required this.onTap});
 
   final Product product;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -301,40 +333,30 @@ class _ProductCard extends StatelessWidget {
       opacity: 0.55,
       borderOpacity: 0.6,
       padding: const EdgeInsets.all(10),
+      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    product.color.withValues(alpha: 0.75),
-                    product.color,
-                  ],
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Hero(
+                    tag: 'product_image_${product.id}',
+                    child: ProductImage(
+                      url: product.imageUrl,
+                      radius: 18,
+                      padding: 14,
+                      iconSize: 36,
+                    ),
+                  ),
                 ),
-              ),
-              child: Stack(
-                children: [
-                  Center(
-                    child: Icon(product.icon, color: Colors.white, size: 44),
-                  ),
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: StatusChip(label: product.category),
-                  ),
-                  Positioned(
-                    bottom: 8,
-                    right: 8,
-                    child: _CartToggle(product: product),
-                  ),
-                ],
-              ),
+                Positioned(
+                  bottom: 8,
+                  right: 8,
+                  child: _CartToggle(product: product),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
@@ -357,7 +379,7 @@ class _ProductCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    _Rating(rating: product.rating, color: AppColors.ink),
+                    Rating(rating: product.rating, color: AppColors.ink),
                     const SizedBox(width: 6),
                     Expanded(
                       child: FittedBox(
@@ -431,25 +453,114 @@ class _CartToggle extends StatelessWidget {
   }
 }
 
-class _Rating extends StatelessWidget {
-  const _Rating({required this.rating, required this.color});
+/// Star, rating and (optionally) the number of reviews.
+class Rating extends StatelessWidget {
+  const Rating({
+    super.key,
+    required this.rating,
+    required this.color,
+    this.reviewCount,
+    this.fontSize = 12,
+    this.longLabel = false,
+  });
 
   final double rating;
+  final int? reviewCount;
   final Color color;
+  final double fontSize;
+
+  /// "(120 reviews)" instead of the compact "(120)".
+  final bool longLabel;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.star_rounded, size: 15, color: AppColors.orange),
+        Icon(Icons.star_rounded, size: fontSize + 3, color: AppColors.orange),
         const SizedBox(width: 2),
         Text(
           rating.toStringAsFixed(1),
           style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: color.withValues(alpha: 0.85),
+            fontSize: fontSize,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+        if (reviewCount != null) ...[
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              longLabel ? '($reviewCount reviews)' : '($reviewCount)',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: fontSize,
+                color: color.withValues(alpha: 0.75),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Offline / timeout / server error, with a button that retries the request.
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({super.key, required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 40, 20, 130),
+      children: [
+        Glass(
+          opacity: 0.12,
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            children: [
+              Icon(
+                Icons.wifi_off_rounded,
+                size: 48,
+                color: Colors.white.withValues(alpha: 0.85),
+              ),
+              const SizedBox(height: 12),
+              const Text('You are offline', style: AppText.section),
+              const SizedBox(height: 6),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: AppText.caption.copyWith(height: 1.35, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton.icon(
+                  onPressed: onRetry,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.ink,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(28),
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Retry Connection'),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -458,9 +569,9 @@ class _Rating extends StatelessWidget {
 }
 
 class _EmptyCatalog extends StatelessWidget {
-  const _EmptyCatalog({super.key, required this.onRestore});
+  const _EmptyCatalog({super.key, required this.onReload});
 
-  final VoidCallback onRestore;
+  final VoidCallback onReload;
 
   @override
   Widget build(BuildContext context) {
@@ -482,7 +593,7 @@ class _EmptyCatalog extends StatelessWidget {
               const Text('Catalog is Empty', style: AppText.section),
               const SizedBox(height: 6),
               Text(
-                'Restore the starter items, or pull down to reload the catalog.',
+                'Reload the catalog, or pull down to refresh.',
                 textAlign: TextAlign.center,
                 style: AppText.caption.copyWith(height: 1.35, fontSize: 13),
               ),
@@ -490,9 +601,9 @@ class _EmptyCatalog extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: PrimaryButton(
-                  label: 'Restore catalog',
+                  label: 'Reload catalog',
                   icon: Icons.refresh_rounded,
-                  onTap: onRestore,
+                  onTap: onReload,
                 ),
               ),
             ],
